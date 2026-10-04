@@ -1,0 +1,15 @@
+name: RaskolHouses
+version: ${project.version}
+main: ru.raskol.houses.RaskolHouses
+api-version: '1.21'
+author: Baltimor
+description: Покупка пронумерованных домов; деньги уходят в казну города.
+softdepend: [WorldEdit, Towny, Vault]
+commands:
+  rhouse:
+    description: Управление домами
+    usage: /rhouse help
+permissions:
+  rhouse.admin:
+    description: Создание и управление домами
+    default: op
