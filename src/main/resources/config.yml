@@ -1,0 +1,6 @@
+# ===== RaskolHouses =====
+town-account-prefix: "town-"   # фолбэк-казна (Этап 2)
+houses-per-player: 1           # лимит домов на игрока (0 = без лимита)
+protect-interactions: true     # чужим нельзя сундуки/двери/печи (Этап 3)
+refund-percent: 0              # возврат при release (Этап 2)
+sign-on-create: true           # табличка при создании (Этап 2)
