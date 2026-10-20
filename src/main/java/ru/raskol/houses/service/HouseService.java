@@ -1,7 +1,6 @@
 package ru.raskol.houses.service;
 
 import org.bukkit.Bukkit;
-import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
 import org.bukkit.block.Sign;
@@ -12,7 +11,7 @@ import ru.raskol.houses.hook.VaultHook;
 import ru.raskol.houses.model.House;
 import ru.raskol.houses.store.HouseStore;
 
-/** Вся логика покупки/возврата/табличек — для команд и кликов по табличке. */
+/** Вся логика покупки/возврата/табличек. */
 public final class HouseService {
 
     private final RaskolHouses plugin;
@@ -50,14 +49,30 @@ public final class HouseService {
             return false;
         }
 
+        /* ----- Зачисление в казну города: 3 попытки ----- */
         String account = plugin.getConfig().getString("town-account-prefix", "town-")
                 + house.town.toLowerCase();
-        boolean deposited = vault.depositAccount(account, house.structure.world, house.price)
-                || vault.depositAccount(account, house.price);
+        boolean deposited = false;
+        String via = "";
+
+        // 1) Банк города Towny (родная казна)
+        if (plugin.getConfig().getBoolean("use-towny-bank", true)) {
+            deposited = plugin.getTownyHook().depositTownBank(house.town, house.price,
+                    "RaskolHouses: покупка дома №" + house.number);
+            if (deposited) via = "банк Towny города " + house.town;
+        }
+        // 2) Vault: создать аккаунт town-<город> и зачислить
+        if (!deposited) {
+            vault.createAccount(account);
+            deposited = vault.depositAccount(account, house.structure.world, house.price)
+                    || vault.depositAccount(account, house.price);
+            if (deposited) via = "аккаунт " + account;
+        }
         if (!deposited) {
             vault.depositPlayer(p, house.price);
             p.sendMessage("§cКазна города недоступна — операция отменена, деньги возвращены.");
-            plugin.getLogger().warning("[Houses] не удалось пополнить казну " + account);
+            plugin.getLogger().warning("[Houses] не удалось зачислить казну: town=" + house.town
+                    + ", account=" + account);
             return false;
         }
 
@@ -67,10 +82,10 @@ public final class HouseService {
         updateSign(house);
 
         p.sendMessage("§a✔ Куплен " + house.title() + " за §b" + vault.format(house.price)
-                + "§a. Деньги ушли в казну города §e" + house.town + "§a.");
+                + "§a. Деньги ушли в §e" + via + "§a.");
         p.sendMessage("§aТелепорт: §e/rhouse home");
         plugin.getLogger().info("[Houses] bought: " + house.id() + " by " + p.getName()
-                + " for " + house.price + " -> " + account);
+                + " for " + house.price + " via " + via);
         return true;
     }
 
