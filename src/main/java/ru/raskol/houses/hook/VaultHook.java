@@ -6,6 +6,7 @@ import org.bukkit.entity.Player;
 import org.bukkit.plugin.RegisteredServiceProvider;
 import ru.raskol.houses.RaskolHouses;
 
+/** Economy через Vault: списание с игрока, депозиты, создание оффлайн-аккаунтов. */
 public final class VaultHook {
 
     private final RaskolHouses plugin;
@@ -47,6 +48,17 @@ public final class VaultHook {
         if (!isAvailable()) return false;
         EconomyResponse r = economy.depositPlayer(player, amount);
         return r.transactionSuccess();
+    }
+
+    /** Создать оффлайн-аккаунт (например, казну town-<город>), если его нет. */
+    public boolean createAccount(String accountName) {
+        if (!isAvailable()) return false;
+        try {
+            if (economy.hasAccount(accountName)) return true;
+            return economy.createPlayerAccount(accountName);
+        } catch (Throwable t) {
+            return false;
+        }
     }
 
     public boolean depositAccount(String accountName, double amount) {
