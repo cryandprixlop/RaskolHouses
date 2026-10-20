@@ -42,6 +42,10 @@ public final class HouseStore {
             h.structure = readRegion(s.getConfigurationSection("structure"));
             h.interior = readRegion(s.getConfigurationSection("interior"));
             h.yard = readRegion(s.getConfigurationSection("yard"));
+            h.signWorld = s.getString("sign-world", "");
+            h.signX = s.getInt("sign-x", 0);
+            h.signY = s.getInt("sign-y", 0);
+            h.signZ = s.getInt("sign-z", 0);
             if (h.structure != null) houses.put(h.id(), h);
         }
     }
@@ -58,6 +62,10 @@ public final class HouseStore {
             writeRegion(s.createSection("structure"), h.structure);
             if (h.interior != null) writeRegion(s.createSection("interior"), h.interior);
             if (h.yard != null) writeRegion(s.createSection("yard"), h.yard);
+            s.set("sign-world", h.signWorld);
+            s.set("sign-x", h.signX);
+            s.set("sign-y", h.signY);
+            s.set("sign-z", h.signZ);
         }
         try {
             cfg.save(new File(plugin.getDataFolder(), "houses.yml"));
@@ -87,6 +95,14 @@ public final class HouseStore {
         return new ArrayList<>(houses.values());
     }
 
+    public List<House> ownedBy(String uuid) {
+        List<House> list = new ArrayList<>();
+        for (House h : houses.values()) {
+            if (uuid.equals(h.owner)) list.add(h);
+        }
+        return list;
+    }
+
     public House houseAt(Location loc) {
         for (House h : houses.values()) {
             if (h.structure != null && h.structure.contains(loc)) return h;
@@ -99,11 +115,7 @@ public final class HouseStore {
     }
 
     public int ownedCount(String uuid) {
-        int count = 0;
-        for (House h : houses.values()) {
-            if (uuid.equals(h.owner)) count++;
-        }
-        return count;
+        return ownedBy(uuid).size();
     }
 
     public void add(House h) {
