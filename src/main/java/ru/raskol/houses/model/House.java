@@ -1,6 +1,5 @@
 package ru.raskol.houses.model;
 
-/** Дом: город + номер, цена, владелец, регионы. */
 public final class House {
 
     public String town;
@@ -8,19 +7,25 @@ public final class House {
     public double price;
     public String owner = "";
     public String ownerName = "";
-    public Region structure;   // весь дом + фасад + двор: никто не ломает
-    public Region interior;    // внутри: владелец может строить
-    public Region yard;        // прилегающая территория: владелец может строить
+    public Region structure;
+    public Region interior;
+    public Region yard;
 
-    public String id() {
-        return town + "-" + number;
-    }
+    // Табличка
+    public String signWorld = "";
+    public int signX, signY, signZ;
 
-    public boolean isOwned() {
-        return owner != null && !owner.isEmpty();
-    }
+    public String id() { return town + "-" + number; }
 
-    public String title() {
-        return "Дом №" + number + " (" + town + ")";
+    public boolean isOwned() { return owner != null && !owner.isEmpty(); }
+
+    public String title() { return "Дом №" + number + " (" + town + ")"; }
+
+    public org.bukkit.Location center() {
+        return new org.bukkit.Location(
+                org.bukkit.Bukkit.getWorld(structure.world),
+                (structure.x1 + structure.x2) / 2.0,
+                (structure.y1 + structure.y2) / 2.0,
+                (structure.z1 + structure.z2) / 2.0);
     }
 }
