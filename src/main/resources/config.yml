@@ -1,6 +1,32 @@
 # ===== RaskolHouses =====
-town-account-prefix: "town-"   # фолбэк-казна (Этап 2)
+town-account-prefix: "town-"   # казна города: оффлайн-аккаунт town-<имя>
 houses-per-player: 1           # лимит домов на игрока (0 = без лимита)
-protect-interactions: true     # чужим нельзя сундуки/двери/печи (Этап 3)
-refund-percent: 0              # возврат при release (Этап 2)
-sign-on-create: true           # табличка при создании (Этап 2)
+refund-percent: 0              # возврат цены при /rhouse release
+sign-on-create: true           # ставить табличку при создании дома
+
+# Чужим запрещено взаимодействовать с этими блоками внутри дома.
+# Двери/калитки/люки НЕ в списке — вход свободный.
+# Блоки с окончанием _BED и _SHULKER_BOX защищены автоматически.
+protect-interactions: true
+protected-materials:
+  - CHEST
+  - TRAPPED_CHEST
+  - BARREL
+  - ENDER_CHEST
+  - FURNACE
+  - BLAST_FURNACE
+  - SMOKER
+  - CRAFTING_TABLE
+  - ANVIL
+  - ENCHANTING_TABLE
+  - BREWING_STAND
+  - BEACON
+  - LOOM
+  - CARTOGRAPHY_TABLE
+  - FLETCHING_TABLE
+  - SMITHING_TABLE
+  - GRINDSTONE
+  - STONECUTTER
+  - LECTERN
+  - ITEM_FRAME
+  - FLOWER_POT
