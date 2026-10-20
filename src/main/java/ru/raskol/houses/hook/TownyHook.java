@@ -5,7 +5,7 @@ import ru.raskol.houses.RaskolHouses;
 
 import java.lang.reflect.Method;
 
-/** Towny через рефлексию: имя города по локации. */
+/** Towny через рефлексию: имя города по локации + депозит в банк города. */
 public final class TownyHook {
 
     private final RaskolHouses plugin;
@@ -30,6 +30,24 @@ public final class TownyHook {
             return (String) town.getClass().getMethod("getName").invoke(town);
         } catch (Throwable t) {
             return null;
+        }
+    }
+
+    /** Депозит в банк города Towny. true = успех. */
+    public boolean depositTownBank(String townName, double amount, String reason) {
+        try {
+            Class<?> apiClass = Class.forName("com.palmergames.bukkit.towny.TownyAPI");
+            Object api = apiClass.getMethod("getInstance").invoke(null);
+            Object town = apiClass.getMethod("getTown", String.class).invoke(api, townName);
+            if (town == null) return false;
+            Object account = town.getClass().getMethod("getAccount").invoke(town);
+            if (account == null) return false;
+            Method deposit = account.getClass().getMethod("deposit", double.class, String.class);
+            Object out = deposit.invoke(account, amount, reason);
+            return !(out instanceof Boolean b) || b;
+        } catch (Throwable t) {
+            plugin.getLogger().warning("[Houses] депозит в банк Towny не удался: " + t);
+            return false;
         }
     }
 
