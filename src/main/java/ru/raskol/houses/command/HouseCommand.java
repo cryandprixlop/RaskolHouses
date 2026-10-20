@@ -1,5 +1,6 @@
 package ru.raskol.houses.command;
 
+import org.bukkit.Location;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -10,6 +11,7 @@ import ru.raskol.houses.hook.SelectionHook;
 import ru.raskol.houses.hook.TownyHook;
 import ru.raskol.houses.model.House;
 import ru.raskol.houses.model.Region;
+import ru.raskol.houses.service.HouseService;
 import ru.raskol.houses.store.HouseStore;
 
 import java.util.ArrayList;
@@ -23,43 +25,49 @@ public final class HouseCommand implements CommandExecutor, TabCompleter {
     private final HouseStore store;
     private final SelectionHook selection;
     private final TownyHook towny;
+    private final HouseService service;
 
     public HouseCommand(RaskolHouses plugin, HouseStore store,
-                        SelectionHook selection, TownyHook towny) {
+                        SelectionHook selection, TownyHook towny, HouseService service) {
         this.plugin = plugin;
         this.store = store;
         this.selection = selection;
         this.towny = towny;
+        this.service = service;
     }
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        if (args.length == 0) {
-            sendHelp(sender);
-            return true;
-        }
+        if (args.length == 0) { sendHelp(sender); return true; }
         switch (args[0].toLowerCase()) {
-            case "create" -> handleCreate(sender, args);
+            case "create"   -> handleCreate(sender, args);
             case "interior" -> handleZone(sender, "interior");
-            case "yard" -> handleZone(sender, "yard");
+            case "yard"     -> handleZone(sender, "yard");
             case "setprice" -> handleSetPrice(sender, args);
-            case "delete" -> handleDelete(sender, args);
-            case "info" -> handleInfo(sender);
-            case "list" -> handleList(sender, args);
-            default -> sendHelp(sender);
+            case "delete"   -> handleDelete(sender, args);
+            case "buy"      -> handleBuy(sender);
+            case "release"  -> handleRelease(sender);
+            case "home"     -> handleHome(sender);
+            case "info"     -> handleInfo(sender);
+            case "list"     -> handleList(sender, args);
+            default         -> sendHelp(sender);
         }
         return true;
     }
 
     private void sendHelp(CommandSender sender) {
         sender.sendMessage("§6=== RaskolHouses ===");
-        sender.sendMessage("§e/rhouse create <номер> <цена> §7— создать дом из WE-выделения");
-        sender.sendMessage("§e/rhouse interior §7— зона интерьера из WE-выделения");
-        sender.sendMessage("§e/rhouse yard §7— зона двора из WE-выделения");
+        sender.sendMessage("§e/rhouse create <номер> <цена> §7— создать дом");
+        sender.sendMessage("§e/rhouse interior §7— зона интерьера");
+        sender.sendMessage("§e/rhouse yard §7— зона двора");
         sender.sendMessage("§e/rhouse setprice <номер> <цена> §7— сменить цену");
         sender.sendMessage("§e/rhouse delete <номер> §7— удалить дом");
-        sender.sendMessage("§e/rhouse info §7— карточка дома, в котором стоишь");
-        sender.sendMessage("§e/rhouse list [город] §7— список домов");
+        sender.sendMessage("§e/rhouse buy §7— купить дом, в котором стоишь");
+        sender.sendMessage("§e/rhouse release §7— вернуть дом городу");
+        sender.sendMessage("§e/rhouse home §7— телепорт в свой дом");
+        sender.sendMessage("§e/rhouse info §7— карточка дома");
+        sender.sendMessage("§e/rhouse list [город|owned] §7— список домов");
+        sender.sendMessage("§7ПКМ по табличке дома — купить (с подтверждением).");
     }
 
     private boolean admin(CommandSender sender) {
@@ -80,10 +88,7 @@ public final class HouseCommand implements CommandExecutor, TabCompleter {
         if (!admin(sender)) return;
         Player p = player(sender);
         if (p == null) return;
-        if (args.length < 3) {
-            p.sendMessage("§cИспользуй: /rhouse create <номер> <цена>");
-            return;
-        }
+        if (args.length < 3) { p.sendMessage("§c/rhouse create <номер> <цена>"); return; }
         int number;
         double price;
         try {
@@ -95,18 +100,12 @@ public final class HouseCommand implements CommandExecutor, TabCompleter {
         }
 
         Region sel = selection.getSelection(p);
-        if (sel == null) {
-            p.sendMessage("§cСначала сделай выделение WorldEdit (//pos1 //pos2 или //wand).");
-            return;
-        }
+        if (sel == null) { p.sendMessage("§cСначала сделай выделение WorldEdit."); return; }
 
-        org.bukkit.Location center = new org.bukkit.Location(p.getWorld(),
+        Location center = new Location(p.getWorld(),
                 (sel.x1 + sel.x2) / 2.0, (sel.y1 + sel.y2) / 2.0, (sel.z1 + sel.z2) / 2.0);
         String town = towny.townAt(center);
-        if (town == null) {
-            p.sendMessage("§cДома можно создавать только в городах (это дикие земли).");
-            return;
-        }
+        if (town == null) { p.sendMessage("§cДома можно создавать только в городах."); return; }
         if (store.byTownNumber(town, number) != null) {
             p.sendMessage("§cВ городе " + town + " уже есть дом №" + number + ".");
             return;
@@ -119,11 +118,13 @@ public final class HouseCommand implements CommandExecutor, TabCompleter {
         h.structure = sel;
         store.add(h);
 
-        p.sendMessage("§aСоздан " + h.title() + " §aза " + price + ". Регион: "
-                + sel.x1 + "," + sel.y1 + "," + sel.z1 + " -> " + sel.x2 + "," + sel.y2 + "," + sel.z2);
-        p.sendMessage("§7Теперь выдели комнаты внутри и введи /rhouse interior");
-        plugin.getLogger().info("[Houses] created: " + h.id() + " price=" + price
-                + " by " + p.getName());
+        if (plugin.getConfig().getBoolean("sign-on-create", true)) {
+            service.placeSign(h, p);
+        }
+
+        p.sendMessage("§aСоздан " + h.title() + " §aза " + price + ".");
+        p.sendMessage("§7Выдели комнаты: /rhouse interior");
+        plugin.getLogger().info("[Houses] created: " + h.id() + " price=" + price + " by " + p.getName());
     }
 
     /* ================= interior / yard ================= */
@@ -132,21 +133,11 @@ public final class HouseCommand implements CommandExecutor, TabCompleter {
         if (!admin(sender)) return;
         Player p = player(sender);
         if (p == null) return;
-
         House house = store.houseAt(p.getLocation());
-        if (house == null) {
-            p.sendMessage("§cВстань внутрь дома, которому задаёшь зону.");
-            return;
-        }
+        if (house == null) { p.sendMessage("§cВстань внутрь дома."); return; }
         Region sel = selection.getSelection(p);
-        if (sel == null) {
-            p.sendMessage("§cСначала сделай выделение WorldEdit.");
-            return;
-        }
-        if (!house.structure.contains(sel)) {
-            p.sendMessage("§cВыделение должно быть внутри региона дома.");
-            return;
-        }
+        if (sel == null) { p.sendMessage("§cСначала сделай выделение."); return; }
+        if (!house.structure.contains(sel)) { p.sendMessage("§cВыделение должно быть внутри дома."); return; }
         if (zone.equals("interior")) house.interior = sel;
         else house.yard = sel;
         store.save();
@@ -160,22 +151,14 @@ public final class HouseCommand implements CommandExecutor, TabCompleter {
         if (!admin(sender)) return;
         Player p = player(sender);
         if (p == null) return;
-        if (args.length < 3) {
-            p.sendMessage("§cИспользуй: /rhouse setprice <номер> <цена>");
-            return;
-        }
+        if (args.length < 3) { p.sendMessage("§c/rhouse setprice <номер> <цена>"); return; }
         String town = towny.townAt(p.getLocation());
-        if (town == null) {
-            p.sendMessage("§cТы вне города.");
-            return;
-        }
+        if (town == null) { p.sendMessage("§cТы вне города."); return; }
         House house = store.byTownNumber(town, Integer.parseInt(args[1]));
-        if (house == null) {
-            p.sendMessage("§cВ городе " + town + " нет дома №" + args[1] + ".");
-            return;
-        }
+        if (house == null) { p.sendMessage("§cНет такого дома."); return; }
         house.price = Double.parseDouble(args[2]);
         store.save();
+        service.updateSign(house);
         p.sendMessage("§aЦена " + house.title() + " теперь " + house.price + ".");
     }
 
@@ -183,22 +166,51 @@ public final class HouseCommand implements CommandExecutor, TabCompleter {
         if (!admin(sender)) return;
         Player p = player(sender);
         if (p == null) return;
-        if (args.length < 2) {
-            p.sendMessage("§cИспользуй: /rhouse delete <номер>");
-            return;
-        }
+        if (args.length < 2) { p.sendMessage("§c/rhouse delete <номер>"); return; }
         String town = towny.townAt(p.getLocation());
-        if (town == null) {
-            p.sendMessage("§cТы вне города.");
-            return;
-        }
+        if (town == null) { p.sendMessage("§cТы вне города."); return; }
         House house = store.byTownNumber(town, Integer.parseInt(args[1]));
-        if (house == null) {
-            p.sendMessage("§cВ городе " + town + " нет дома №" + args[1] + ".");
-            return;
-        }
+        if (house == null) { p.sendMessage("§cНет такого дома."); return; }
         store.remove(house.id());
         p.sendMessage("§cДом " + house.title() + " удалён из реестра.");
+    }
+
+    /* ================= buy / release / home ================= */
+
+    private void handleBuy(CommandSender sender) {
+        Player p = player(sender);
+        if (p == null) return;
+        House house = store.houseAt(p.getLocation());
+        if (house == null) { p.sendMessage("§7Ты не внутри дома."); return; }
+        service.tryBuy(p, house);
+    }
+
+    private void handleRelease(CommandSender sender) {
+        Player p = player(sender);
+        if (p == null) return;
+        House house = store.houseAt(p.getLocation());
+        if (house == null) { p.sendMessage("§7Ты не внутри дома."); return; }
+        if (!house.isOwned() || !house.owner.equals(p.getUniqueId().toString())) {
+            p.sendMessage("§cТы не владелец этого дома.");
+            return;
+        }
+        service.release(p, house);
+    }
+
+    private void handleHome(CommandSender sender) {
+        Player p = player(sender);
+        if (p == null) return;
+        List<House> owned = store.ownedBy(p.getUniqueId().toString());
+        if (owned.isEmpty()) { p.sendMessage("§cУ тебя нет дома. Купи: /rhouse buy"); return; }
+        House h = owned.get(0);
+        Location safe = new Location(
+                org.bukkit.Bukkit.getWorld(h.structure.world),
+                (h.structure.x1 + h.structure.x2) / 2.0,
+                h.structure.y1 + 1,
+                (h.structure.z1 + h.structure.z2) / 2.0);
+        if (safe.getWorld() == null) { p.sendMessage("§cМир дома не найден."); return; }
+        p.teleport(safe);
+        p.sendMessage("§aТелепорт в " + h.title() + ".");
     }
 
     /* ================= info / list ================= */
@@ -207,30 +219,25 @@ public final class HouseCommand implements CommandExecutor, TabCompleter {
         Player p = player(sender);
         if (p == null) return;
         House house = store.houseAt(p.getLocation());
-        if (house == null) {
-            p.sendMessage("§7Ты не внутри дома.");
-            return;
-        }
+        if (house == null) { p.sendMessage("§7Ты не внутри дома."); return; }
         p.sendMessage("§6=== " + house.title() + " ===");
         p.sendMessage("§eЦена: §7" + house.price);
         p.sendMessage("§eСтатус: " + (house.isOwned()
-                ? "§aпродан, владелец: " + house.ownerName
-                : "§bсвободен"));
-        p.sendMessage("§eЗоны: §7interior=" + (house.interior != null ? "да" : "нет")
-                + ", yard=" + (house.yard != null ? "да" : "нет"));
+                ? "§aпродан, владелец: " + house.ownerName : "§bсвободен"));
     }
 
     private void handleList(CommandSender sender, String[] args) {
-        String town = args.length >= 2 ? String.join(" ", Arrays.asList(args).subList(1, args.length)) : null;
+        String filter = args.length >= 2
+                ? String.join(" ", Arrays.asList(args).subList(1, args.length)).toLowerCase() : null;
         List<House> list = new ArrayList<>();
         for (House h : store.all()) {
-            if (town == null || h.town.equalsIgnoreCase(town)) list.add(h);
+            if (filter == null) list.add(h);
+            else if (filter.equals("owned") && sender instanceof Player p
+                    && h.owner.equals(p.getUniqueId().toString())) list.add(h);
+            else if (h.town.toLowerCase().equals(filter)) list.add(h);
         }
-        if (list.isEmpty()) {
-            sender.sendMessage("§7Домов не найдено.");
-            return;
-        }
-        sender.sendMessage("§6=== Домов в реестре: " + list.size() + " ===");
+        if (list.isEmpty()) { sender.sendMessage("§7Домов не найдено."); return; }
+        sender.sendMessage("§6=== Домов: " + list.size() + " ===");
         for (House h : list) {
             sender.sendMessage("§e" + h.title() + " §7— " + h.price
                     + (h.isOwned() ? " §aвладелец: " + h.ownerName : " §bсвободен"));
@@ -241,7 +248,10 @@ public final class HouseCommand implements CommandExecutor, TabCompleter {
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
             return filter(Arrays.asList("create", "interior", "yard", "setprice",
-                    "delete", "info", "list"), args[0]);
+                    "delete", "buy", "release", "home", "info", "list"), args[0]);
+        }
+        if (args.length == 2 && args[0].equalsIgnoreCase("list")) {
+            return filter(Arrays.asList("owned"), args[1]);
         }
         return Collections.emptyList();
     }
