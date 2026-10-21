@@ -9,6 +9,7 @@ import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
+import org.bukkit.util.RayTraceResult;
 import ru.raskol.houses.RaskolHouses;
 import ru.raskol.houses.hook.SelectionHook;
 import ru.raskol.houses.hook.TownyHook;
@@ -66,7 +67,7 @@ public final class HouseCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage("§e/rhouse create <номер> <цена> §7— создать дом");
         sender.sendMessage("§e/rhouse interior §7— зона интерьера");
         sender.sendMessage("§e/rhouse yard §7— зона двора");
-        sender.sendMessage("§e/rhouse setsign §7— табличка на блок, на который смотришь");
+        sender.sendMessage("§e/rhouse setsign §7— настенная табличка на грань, куда смотришь");
         sender.sendMessage("§e/rhouse setprice <номер> <цена> §7— сменить цену");
         sender.sendMessage("§e/rhouse delete <номер> §7— удалить дом");
         sender.sendMessage("§e/rhouse buy §7— купить дом, в котором стоишь");
@@ -153,24 +154,43 @@ public final class HouseCommand implements CommandExecutor, TabCompleter {
                 + " установлена для " + house.title() + ".");
     }
 
-    /* ================= setsign ================= */
+    /* ================= setsign (настенная) ================= */
 
     private void handleSetSign(CommandSender sender) {
         if (!admin(sender)) return;
         Player p = player(sender);
         if (p == null) return;
-        Block target = p.getTargetBlockExact(5);
-        if (target == null) { p.sendMessage("§cПосмотри на блок рядом (до 5 блоков)."); return; }
+
+        RayTraceResult rt = p.rayTraceBlocks(5.0);
+        if (rt == null || rt.getBlock() == null) {
+            p.sendMessage("§cПосмотри на стену (до 5 блоков).");
+            return;
+        }
+        Block target = rt.getBlock();
+        BlockFace face = rt.getBlockFace();
 
         House house = store.houseAt(target.getLocation());
         if (house == null) house = store.houseAt(p.getLocation());
         if (house == null) { p.sendMessage("§cРядом нет дома из реестра."); return; }
 
-        Location signLoc = (target.getState() instanceof Sign)
-                ? target.getLocation()
-                : target.getRelative(BlockFace.UP).getLocation();
-        if (service.attachSign(house, signLoc)) {
-            p.sendMessage("§aТабличка привязана к " + house.title() + ".");
+        // Уже табличка — просто привязываем координаты
+        if (target.getState() instanceof Sign) {
+            if (service.attachSign(house, target.getLocation(), null)) {
+                p.sendMessage("§aТабличка привязана к " + house.title() + ".");
+            } else {
+                p.sendMessage("§cНе удалось привязать табличку.");
+            }
+            return;
+        }
+
+        if (face == null || face == BlockFace.UP || face == BlockFace.DOWN) {
+            p.sendMessage("§cПосмотри на вертикальную стену, не на пол/потолок.");
+            return;
+        }
+
+        Location signLoc = target.getRelative(face).getLocation();
+        if (service.attachSign(house, signLoc, face)) {
+            p.sendMessage("§aНастенная табличка установлена и привязана к " + house.title() + ".");
         } else {
             p.sendMessage("§cНе удалось поставить табличку: место занято.");
         }
