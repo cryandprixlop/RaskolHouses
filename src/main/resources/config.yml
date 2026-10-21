@@ -1,12 +1,10 @@
 # ===== RaskolHouses =====
-town-account-prefix: "town-"   # казна города: оффлайн-аккаунт town-<имя>
+town-account-prefix: "town-"   # казна города: аккаунт town-<имя> (фолбэк)
 houses-per-player: 1           # лимит домов на игрока (0 = без лимита)
-refund-percent: 0              # возврат цены при /rhouse release
+refund-percent: 40             # возврат при /rhouse release, платит казна города
 sign-on-create: true           # ставить табличку при создании дома
+use-towny-bank: true           # сначала банк Towny, потом Vault-аккаунт
 
-# Чужим запрещено взаимодействовать с этими блоками внутри дома.
-# Двери/калитки/люки НЕ в списке — вход свободный.
-# Блоки с окончанием _BED и _SHULKER_BOX защищены автоматически.
 protect-interactions: true
 protected-materials:
   - CHEST
@@ -30,3 +28,11 @@ protected-materials:
   - LECTERN
   - ITEM_FRAME
   - FLOWER_POT
+
+# ===== Налог на недвижимость =====
+tax:
+  enabled: true          # если false — дни предоплаты не списываются
+  per-day: 200.0         # цена одного дня
+  max-prepaid-days: 20   # потолок предоплаты
+  initial-paid-days: 7   # дней включено в цену при покупке
+  grace-days: 3          # дней просрочки до конфискации дома городом
