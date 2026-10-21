@@ -4,7 +4,9 @@ import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
+import org.bukkit.block.BlockFace;
 import org.bukkit.block.Sign;
+import org.bukkit.block.data.type.WallSign;
 import org.bukkit.block.sign.Side;
 import org.bukkit.entity.Player;
 import ru.raskol.houses.RaskolHouses;
@@ -12,8 +14,10 @@ import ru.raskol.houses.hook.VaultHook;
 import ru.raskol.houses.model.House;
 import ru.raskol.houses.store.HouseStore;
 
-/** Покупка / возврат / налог / таблички. */
+/** Покупка / возврат / налог / таблички (настенные). */
 public final class HouseService {
+
+    private static final int[][] DIRS = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
 
     private final RaskolHouses plugin;
     private final HouseStore store;
@@ -136,6 +140,7 @@ public final class HouseService {
 
         house.paidDays = target;
         store.save();
+        updateSign(house);
         p.sendMessage("§a✔ Продлено на §e" + added + " дн.§a (оплачено §b" + vault.format(cost)
                 + "§a → " + via + "). Оплачено всего: §e" + house.paidDays + "/" + max + " дн.");
         if (added < days) {
@@ -144,7 +149,7 @@ public final class HouseService {
         }
     }
 
-    /* ================= Казна: депозит / снятие ================= */
+    /* ================= Казна ================= */
 
     private String depositToTown(House house, double amount, String reason) {
         if (plugin.getConfig().getBoolean("use-towny-bank", true)
@@ -172,40 +177,68 @@ public final class HouseService {
                 || vault.withdrawAccount(account, amount);
     }
 
-    /* ================= Таблички ================= */
+    /* ================= Таблички (настенные) ================= */
 
-    /** Авто-поиск места: первый сплошной блок с воздухом над ним внутри дома. */
+    /** Авто-поиск стены внутри дома: табличка вешается на неё лицом в комнату. */
     public void placeSign(House h, Player creator) {
         try {
             org.bukkit.World w = Bukkit.getWorld(h.structure.world);
             if (w == null) return;
-            int x = (h.structure.x1 + h.structure.x2) / 2;
-            int z = (h.structure.z1 + h.structure.z2) / 2;
-            for (int y = h.structure.y1; y <= h.structure.y2; y++) {
-                Block base = w.getBlockAt(x, y, z);
-                Block above = w.getBlockAt(x, y + 1, z);
-                if (base.getType().isSolid() && above.getType() == Material.AIR) {
-                    if (attachSign(h, above.getLocation())) {
-                        creator.sendMessage("§aТабличка установлена внутри дома.");
+            int cx = (h.structure.x1 + h.structure.x2) / 2;
+            int cz = (h.structure.z1 + h.structure.z2) / 2;
+            int maxX = (h.structure.x2 - h.structure.x1) / 2 + 1;
+            int maxZ = (h.structure.z2 - h.structure.z1) / 2 + 1;
+
+            for (int dy : new int[]{2, 1, 3}) {
+                int y = h.structure.y1 + dy;
+                if (y > h.structure.y2) continue;
+                for (int[] dir : DIRS) {
+                    int limit = (dir[0] != 0) ? maxX : maxZ;
+                    for (int step = 1; step <= limit; step++) {
+                        int bx = cx + dir[0] * step;
+                        int bz = cz + dir[1] * step;
+                        Block wall = w.getBlockAt(bx, y, bz);
+                        if (wall.getType().isSolid()) {
+                            Block front = w.getBlockAt(bx - dir[0], y, bz - dir[1]);
+                            if (front.getType() == Material.AIR) {
+                                BlockFace facing = faceOf(-dir[0], -dir[1]);
+                                if (attachSign(h, front.getLocation(), facing)) {
+                                    creator.sendMessage("§aТабличка установлена на стене внутри дома.");
+                                }
+                                return;
+                            }
+                            break;
+                        }
                     }
-                    return;
                 }
             }
-            int y = w.getHighestBlockYAt(x, z);
-            if (attachSign(h, new Location(w, x, y + 1, z))) {
-                creator.sendMessage("§aТабличка установлена снаружи.");
-            }
+            creator.sendMessage("§eНе нашёл стену для таблички — поставь вручную: /rhouse setsign");
         } catch (Throwable t) {
             creator.sendMessage("§eТабличка не установлена: " + t.getMessage());
         }
     }
 
-    /** Привязать табличку к координатам; если блока-таблички нет — поставить OAK_SIGN. */
-    public boolean attachSign(House h, Location loc) {
+    /**
+     * Привязать табличку к координатам.
+     * facing = куда смотрит лицевая сторона (null = авто: ищем стену рядом).
+     * Если блока-таблички нет — создаёт OAK_WALL_SIGN (или OAK_SIGN, если стены нет).
+     */
+    public boolean attachSign(House h, Location loc, BlockFace facing) {
         Block b = loc.getBlock();
         if (!(b.getState() instanceof Sign)) {
             if (b.getType() != Material.AIR) return false;
-            b.setType(Material.OAK_SIGN);
+            BlockFace f = (facing != null && isHorizontal(facing)) ? facing : detectWall(b);
+            if (f != null) {
+                b.setType(Material.OAK_WALL_SIGN);
+                if (b.getBlockData() instanceof WallSign ws) {
+                    ws.setFacing(f);
+                    b.setBlockData(ws);
+                }
+            } else if (b.getRelative(BlockFace.DOWN).getType().isSolid()) {
+                b.setType(Material.OAK_SIGN);
+            } else {
+                return false;
+            }
         }
         if (b.getState() instanceof Sign sign) {
             writeSign(sign, h);
@@ -217,6 +250,10 @@ public final class HouseService {
         h.signZ = loc.getBlockZ();
         store.save();
         return true;
+    }
+
+    public boolean attachSign(House h, Location loc) {
+        return attachSign(h, loc, null);
     }
 
     public void updateSign(House house) {
@@ -239,5 +276,24 @@ public final class HouseService {
                 ? "§eНалог: §7" + h.paidDays + " дн."
                 : "§7[свободен]");
         sign.getSide(Side.FRONT).setLine(3, h.isOwned() ? "" : "§eПКМ: купить");
+    }
+
+    /** Направление стены рядом с блоком -> facing таблички (от стены). */
+    private BlockFace detectWall(Block b) {
+        for (BlockFace f : new BlockFace[]{BlockFace.NORTH, BlockFace.SOUTH, BlockFace.EAST, BlockFace.WEST}) {
+            if (b.getRelative(f).getType().isSolid()) return f.getOppositeFace();
+        }
+        return null;
+    }
+
+    private boolean isHorizontal(BlockFace f) {
+        return f == BlockFace.NORTH || f == BlockFace.SOUTH || f == BlockFace.EAST || f == BlockFace.WEST;
+    }
+
+    private BlockFace faceOf(int dx, int dz) {
+        if (dx == 1) return BlockFace.EAST;
+        if (dx == -1) return BlockFace.WEST;
+        if (dz == 1) return BlockFace.SOUTH;
+        return BlockFace.NORTH;
     }
 }
