@@ -162,12 +162,12 @@ public final class HouseCommand implements CommandExecutor, TabCompleter {
         if (p == null) return;
 
         RayTraceResult rt = p.rayTraceBlocks(5.0);
-        if (rt == null || rt.getBlock() == null) {
+        if (rt == null || rt.getHitBlock() == null) {
             p.sendMessage("§cПосмотри на стену (до 5 блоков).");
             return;
         }
-        Block target = rt.getBlock();
-        BlockFace face = rt.getBlockFace();
+        Block target = rt.getHitBlock();
+        BlockFace face = rt.getHitBlockFace();
 
         House house = store.houseAt(target.getLocation());
         if (house == null) house = store.houseAt(p.getLocation());
