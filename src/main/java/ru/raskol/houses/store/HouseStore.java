@@ -18,6 +18,7 @@ public final class HouseStore {
 
     private final RaskolHouses plugin;
     private final Map<String, House> houses = new LinkedHashMap<>();
+    private String lastTaxDate = "";
 
     public HouseStore(RaskolHouses plugin) {
         this.plugin = plugin;
@@ -28,6 +29,7 @@ public final class HouseStore {
         File file = new File(plugin.getDataFolder(), "houses.yml");
         if (!file.exists()) return;
         YamlConfiguration cfg = YamlConfiguration.loadConfiguration(file);
+        lastTaxDate = cfg.getString("meta.last-tax-date", "");
         ConfigurationSection root = cfg.getConfigurationSection("houses");
         if (root == null) return;
         for (String id : root.getKeys(false)) {
@@ -46,12 +48,14 @@ public final class HouseStore {
             h.signX = s.getInt("sign-x", 0);
             h.signY = s.getInt("sign-y", 0);
             h.signZ = s.getInt("sign-z", 0);
+            h.paidDays = s.getInt("paid-days", 0);
             if (h.structure != null) houses.put(h.id(), h);
         }
     }
 
     public void save() {
         YamlConfiguration cfg = new YamlConfiguration();
+        cfg.set("meta.last-tax-date", lastTaxDate);
         for (House h : houses.values()) {
             ConfigurationSection s = cfg.createSection("houses." + h.id());
             s.set("town", h.town);
@@ -66,6 +70,7 @@ public final class HouseStore {
             s.set("sign-x", h.signX);
             s.set("sign-y", h.signY);
             s.set("sign-z", h.signZ);
+            s.set("paid-days", h.paidDays);
         }
         try {
             cfg.save(new File(plugin.getDataFolder(), "houses.yml"));
@@ -89,11 +94,7 @@ public final class HouseStore {
         s.set("x2", r.x2); s.set("y2", r.y2); s.set("z2", r.z2);
     }
 
-    /* ================= Запросы ================= */
-
-    public List<House> all() {
-        return new ArrayList<>(houses.values());
-    }
+    public List<House> all() { return new ArrayList<>(houses.values()); }
 
     public List<House> ownedBy(String uuid) {
         List<House> list = new ArrayList<>();
@@ -114,17 +115,13 @@ public final class HouseStore {
         return houses.get(town + "-" + number);
     }
 
-    public int ownedCount(String uuid) {
-        return ownedBy(uuid).size();
-    }
+    public int ownedCount(String uuid) { return ownedBy(uuid).size(); }
 
-    public void add(House h) {
-        houses.put(h.id(), h);
-        save();
-    }
+    public void add(House h) { houses.put(h.id(), h); save(); }
 
-    public void remove(String id) {
-        houses.remove(id);
-        save();
-    }
+    public void remove(String id) { houses.remove(id); save(); }
+
+    public String getLastTaxDate() { return lastTaxDate; }
+
+    public void setLastTaxDate(String date) { this.lastTaxDate = date; }
 }
