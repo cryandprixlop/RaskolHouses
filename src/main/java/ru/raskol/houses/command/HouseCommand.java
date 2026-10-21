@@ -1,6 +1,9 @@
 package ru.raskol.houses.command;
 
 import org.bukkit.Location;
+import org.bukkit.block.Block;
+import org.bukkit.block.BlockFace;
+import org.bukkit.block.Sign;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -48,6 +51,9 @@ public final class HouseCommand implements CommandExecutor, TabCompleter {
             case "buy"      -> handleBuy(sender);
             case "release"  -> handleRelease(sender);
             case "home"     -> handleHome(sender);
+            case "pay"      -> handlePay(sender, args);
+            case "taxinfo"  -> handleTaxInfo(sender);
+            case "setsign"  -> handleSetSign(sender);
             case "info"     -> handleInfo(sender);
             case "list"     -> handleList(sender, args);
             default         -> sendHelp(sender);
@@ -60,14 +66,16 @@ public final class HouseCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage("§e/rhouse create <номер> <цена> §7— создать дом");
         sender.sendMessage("§e/rhouse interior §7— зона интерьера");
         sender.sendMessage("§e/rhouse yard §7— зона двора");
+        sender.sendMessage("§e/rhouse setsign §7— табличка на блок, на который смотришь");
         sender.sendMessage("§e/rhouse setprice <номер> <цена> §7— сменить цену");
         sender.sendMessage("§e/rhouse delete <номер> §7— удалить дом");
         sender.sendMessage("§e/rhouse buy §7— купить дом, в котором стоишь");
-        sender.sendMessage("§e/rhouse release §7— вернуть дом городу");
+        sender.sendMessage("§e/rhouse pay <дни> §7— продлить налог (до 20 дн. максимум)");
+        sender.sendMessage("§e/rhouse taxinfo §7— статус налога твоего дома");
+        sender.sendMessage("§e/rhouse release §7— продать дом государству (возврат из казны)");
         sender.sendMessage("§e/rhouse home §7— телепорт в свой дом");
         sender.sendMessage("§e/rhouse info §7— карточка дома");
         sender.sendMessage("§e/rhouse list [город|owned] §7— список домов");
-        sender.sendMessage("§7ПКМ по табличке дома — купить (с подтверждением).");
     }
 
     private boolean admin(CommandSender sender) {
@@ -145,6 +153,29 @@ public final class HouseCommand implements CommandExecutor, TabCompleter {
                 + " установлена для " + house.title() + ".");
     }
 
+    /* ================= setsign ================= */
+
+    private void handleSetSign(CommandSender sender) {
+        if (!admin(sender)) return;
+        Player p = player(sender);
+        if (p == null) return;
+        Block target = p.getTargetBlockExact(5);
+        if (target == null) { p.sendMessage("§cПосмотри на блок рядом (до 5 блоков)."); return; }
+
+        House house = store.houseAt(target.getLocation());
+        if (house == null) house = store.houseAt(p.getLocation());
+        if (house == null) { p.sendMessage("§cРядом нет дома из реестра."); return; }
+
+        Location signLoc = (target.getState() instanceof Sign)
+                ? target.getLocation()
+                : target.getRelative(BlockFace.UP).getLocation();
+        if (service.attachSign(house, signLoc)) {
+            p.sendMessage("§aТабличка привязана к " + house.title() + ".");
+        } else {
+            p.sendMessage("§cНе удалось поставить табличку: место занято.");
+        }
+    }
+
     /* ================= setprice / delete ================= */
 
     private void handleSetPrice(CommandSender sender, String[] args) {
@@ -213,6 +244,42 @@ public final class HouseCommand implements CommandExecutor, TabCompleter {
         p.sendMessage("§aТелепорт в " + h.title() + ".");
     }
 
+    /* ================= pay / taxinfo ================= */
+
+    private void handlePay(CommandSender sender, String[] args) {
+        Player p = player(sender);
+        if (p == null) return;
+        House house = store.houseAt(p.getLocation());
+        if (house == null) { p.sendMessage("§7Ты не внутри дома."); return; }
+        int days;
+        try {
+            days = Integer.parseInt(args.length >= 2 ? args[1] : "1");
+        } catch (NumberFormatException e) {
+            p.sendMessage("§c/rhouse pay <дни>");
+            return;
+        }
+        service.payTax(p, house, days);
+    }
+
+    private void handleTaxInfo(CommandSender sender) {
+        Player p = player(sender);
+        if (p == null) return;
+        House house = store.houseAt(p.getLocation());
+        if (house == null) {
+            List<House> owned = store.ownedBy(p.getUniqueId().toString());
+            if (owned.isEmpty()) { p.sendMessage("§cУ тебя нет дома."); return; }
+            house = owned.get(0);
+        }
+        double perDay = plugin.getConfig().getDouble("tax.per-day", 200.0);
+        int max = plugin.getConfig().getInt("tax.max-prepaid-days", 20);
+        int grace = plugin.getConfig().getInt("tax.grace-days", 3);
+        p.sendMessage("§6=== Налог: " + house.title() + " ===");
+        p.sendMessage("§eСтавка: §b" + (int) perDay + " §eмонет/день");
+        p.sendMessage("§eОплачено: §e" + house.paidDays + "/" + max + " дн."
+                + (house.paidDays < 0 ? " §c(просрочка " + (-house.paidDays) + "/" + grace + ")" : ""));
+        p.sendMessage("§eПродлить: §7/rhouse pay <дни> §8(цена = дни × " + (int) perDay + ")");
+    }
+
     /* ================= info / list ================= */
 
     private void handleInfo(CommandSender sender) {
@@ -223,7 +290,8 @@ public final class HouseCommand implements CommandExecutor, TabCompleter {
         p.sendMessage("§6=== " + house.title() + " ===");
         p.sendMessage("§eЦена: §7" + house.price);
         p.sendMessage("§eСтатус: " + (house.isOwned()
-                ? "§aпродан, владелец: " + house.ownerName : "§bсвободен"));
+                ? "§aпродан, владелец: " + house.ownerName + " §7(налог: " + house.paidDays + " дн.)"
+                : "§bсвободен"));
     }
 
     private void handleList(CommandSender sender, String[] args) {
@@ -240,15 +308,15 @@ public final class HouseCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage("§6=== Домов: " + list.size() + " ===");
         for (House h : list) {
             sender.sendMessage("§e" + h.title() + " §7— " + h.price
-                    + (h.isOwned() ? " §aвладелец: " + h.ownerName : " §bсвободен"));
+                    + (h.isOwned() ? " §aвладелец: " + h.ownerName + " §7(" + h.paidDays + " дн.)" : " §bсвободен"));
         }
     }
 
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
-            return filter(Arrays.asList("create", "interior", "yard", "setprice",
-                    "delete", "buy", "release", "home", "info", "list"), args[0]);
+            return filter(Arrays.asList("create", "interior", "yard", "setsign", "setprice",
+                    "delete", "buy", "pay", "taxinfo", "release", "home", "info", "list"), args[0]);
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("list")) {
             return filter(Arrays.asList("owned"), args[1]);
