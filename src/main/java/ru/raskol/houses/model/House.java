@@ -15,6 +15,9 @@ public final class House {
     public String signWorld = "";
     public int signX, signY, signZ;
 
+    // Налог: оплачено дней вперёд
+    public int paidDays;
+
     public String id() { return town + "-" + number; }
 
     public boolean isOwned() { return owner != null && !owner.isEmpty(); }
