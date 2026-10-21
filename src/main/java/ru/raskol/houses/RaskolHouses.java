@@ -12,6 +12,7 @@ import ru.raskol.houses.listener.ProtectionListener;
 import ru.raskol.houses.listener.SignListener;
 import ru.raskol.houses.service.HouseService;
 import ru.raskol.houses.store.HouseStore;
+import ru.raskol.houses.task.TaxTask;
 
 public final class RaskolHouses extends JavaPlugin {
 
@@ -45,6 +46,10 @@ public final class RaskolHouses extends JavaPlugin {
                 new InteractionListener(this, houseStore), this);
         getServer().getPluginManager().registerEvents(
                 new SignListener(this, houseStore, houseService), this);
+
+        // Налог: проверка раз в минуту, сработка раз в сутки
+        getServer().getScheduler().runTaskTimer(this,
+                new TaxTask(this, houseStore, houseService), 200L, 20L * 60);
 
         boolean papi = getServer().getPluginManager().getPlugin("PlaceholderAPI") != null;
         if (papi) {
