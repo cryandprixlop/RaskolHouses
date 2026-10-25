@@ -44,20 +44,22 @@ public final class HouseCommand implements CommandExecutor, TabCompleter {
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (args.length == 0) { sendHelp(sender); return true; }
         switch (args[0].toLowerCase()) {
-            case "create"   -> handleCreate(sender, args);
-            case "interior" -> handleZone(sender, "interior");
-            case "yard"     -> handleZone(sender, "yard");
-            case "setprice" -> handleSetPrice(sender, args);
-            case "delete"   -> handleDelete(sender, args);
-            case "buy"      -> handleBuy(sender);
-            case "release"  -> handleRelease(sender);
-            case "home"     -> handleHome(sender);
-            case "pay"      -> handlePay(sender, args);
-            case "taxinfo"  -> handleTaxInfo(sender);
-            case "setsign"  -> handleSetSign(sender);
-            case "info"     -> handleInfo(sender);
-            case "list"     -> handleList(sender, args);
-            default         -> sendHelp(sender);
+            case "create"     -> handleCreate(sender, args);
+            case "interior"   -> handleZone(sender, "interior");
+            case "yard"       -> handleZone(sender, "yard");
+            case "setprice"   -> handleSetPrice(sender, args);
+            case "delete"     -> handleDelete(sender, args);
+            case "buy"        -> handleBuy(sender);
+            case "sell"       -> handleSell(sender, args);
+            case "commission" -> handleCommission(sender, args);
+            case "release"    -> handleRelease(sender);
+            case "home"       -> handleHome(sender);
+            case "pay"        -> handlePay(sender, args);
+            case "taxinfo"    -> handleTaxInfo(sender);
+            case "setsign"    -> handleSetSign(sender);
+            case "info"       -> handleInfo(sender);
+            case "list"       -> handleList(sender, args);
+            default           -> sendHelp(sender);
         }
         return true;
     }
@@ -68,12 +70,15 @@ public final class HouseCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage("§e/rhouse interior §7— зона интерьера");
         sender.sendMessage("§e/rhouse yard §7— зона двора");
         sender.sendMessage("§e/rhouse setsign §7— настенная табличка на грань, куда смотришь");
-        sender.sendMessage("§e/rhouse setprice <номер> <цена> §7— сменить цену");
+        sender.sendMessage("§e/rhouse setprice <номер> <цена> §7— сменить цену города");
         sender.sendMessage("§e/rhouse delete <номер> §7— удалить дом");
-        sender.sendMessage("§e/rhouse buy §7— купить дом, в котором стоишь");
-        sender.sendMessage("§e/rhouse pay <дни> §7— продлить налог (до 20 дн. максимум)");
-        sender.sendMessage("§e/rhouse taxinfo §7— статус налога твоего дома");
-        sender.sendMessage("§e/rhouse release §7— продать дом государству (возврат из казны)");
+        sender.sendMessage("§e/rhouse buy §7— купить дом (у города или у игрока)");
+        sender.sendMessage("§e/rhouse sell <цена> §7— выставить свой дом на продажу");
+        sender.sendMessage("§e/rhouse sell cancel §7— снять дом с продажи");
+        sender.sendMessage("§e/rhouse commission <процент> §7— (король) комиссия нации с продаж");
+        sender.sendMessage("§e/rhouse pay <дни> §7— продлить налог (до 20 дн.)");
+        sender.sendMessage("§e/rhouse taxinfo §7— статус налога");
+        sender.sendMessage("§e/rhouse release §7— продать дом государству");
         sender.sendMessage("§e/rhouse home §7— телепорт в свой дом");
         sender.sendMessage("§e/rhouse info §7— карточка дома");
         sender.sendMessage("§e/rhouse list [город|owned] §7— список домов");
@@ -91,7 +96,7 @@ public final class HouseCommand implements CommandExecutor, TabCompleter {
         return null;
     }
 
-    /* ================= create ================= */
+    /* ================= create / zones / setsign / setprice / delete ================= */
 
     private void handleCreate(CommandSender sender, String[] args) {
         if (!admin(sender)) return;
@@ -136,8 +141,6 @@ public final class HouseCommand implements CommandExecutor, TabCompleter {
         plugin.getLogger().info("[Houses] created: " + h.id() + " price=" + price + " by " + p.getName());
     }
 
-    /* ================= interior / yard ================= */
-
     private void handleZone(CommandSender sender, String zone) {
         if (!admin(sender)) return;
         Player p = player(sender);
@@ -153,8 +156,6 @@ public final class HouseCommand implements CommandExecutor, TabCompleter {
         p.sendMessage("§aЗона " + (zone.equals("interior") ? "интерьера" : "двора")
                 + " установлена для " + house.title() + ".");
     }
-
-    /* ================= setsign (настенная) ================= */
 
     private void handleSetSign(CommandSender sender) {
         if (!admin(sender)) return;
@@ -173,7 +174,6 @@ public final class HouseCommand implements CommandExecutor, TabCompleter {
         if (house == null) house = store.houseAt(p.getLocation());
         if (house == null) { p.sendMessage("§cРядом нет дома из реестра."); return; }
 
-        // Уже табличка — просто привязываем координаты
         if (target.getState() instanceof Sign) {
             if (service.attachSign(house, target.getLocation(), null)) {
                 p.sendMessage("§aТабличка привязана к " + house.title() + ".");
@@ -195,8 +195,6 @@ public final class HouseCommand implements CommandExecutor, TabCompleter {
             p.sendMessage("§cНе удалось поставить табличку: место занято.");
         }
     }
-
-    /* ================= setprice / delete ================= */
 
     private void handleSetPrice(CommandSender sender, String[] args) {
         if (!admin(sender)) return;
@@ -226,7 +224,7 @@ public final class HouseCommand implements CommandExecutor, TabCompleter {
         p.sendMessage("§cДом " + house.title() + " удалён из реестра.");
     }
 
-    /* ================= buy / release / home ================= */
+    /* ================= buy / sell / commission ================= */
 
     private void handleBuy(CommandSender sender) {
         Player p = player(sender);
@@ -235,6 +233,49 @@ public final class HouseCommand implements CommandExecutor, TabCompleter {
         if (house == null) { p.sendMessage("§7Ты не внутри дома."); return; }
         service.tryBuy(p, house);
     }
+
+    private void handleSell(CommandSender sender, String[] args) {
+        Player p = player(sender);
+        if (p == null) return;
+        House house = store.houseAt(p.getLocation());
+        if (house == null) { p.sendMessage("§7Ты не внутри дома."); return; }
+        if (args.length >= 2 && args[1].equalsIgnoreCase("cancel")) {
+            service.cancelSale(p, house);
+            return;
+        }
+        if (args.length < 2) { p.sendMessage("§c/rhouse sell <цена>  или  /rhouse sell cancel"); return; }
+        double price;
+        try { price = Double.parseDouble(args[1]); }
+        catch (NumberFormatException e) { p.sendMessage("§cЦена — число."); return; }
+        service.listForSale(p, house, price);
+    }
+
+    private void handleCommission(CommandSender sender, String[] args) {
+        Player p = player(sender);
+        if (p == null) return;
+        if (args.length < 2) { p.sendMessage("§c/rhouse commission <процент>"); return; }
+        String nation = towny.residentNationName(p);
+        if (nation == null && !p.hasPermission("rhouse.admin")) {
+            p.sendMessage("§cТы не состоишь в королевстве.");
+            return;
+        }
+        if (!p.hasPermission("rhouse.admin") && !towny.isKing(p)) {
+            p.sendMessage("§cТолько король может менять комиссию королевства.");
+            return;
+        }
+        double percent;
+        try { percent = Double.parseDouble(args[1]); }
+        catch (NumberFormatException e) { p.sendMessage("§cПроцент — число."); return; }
+        if (percent < 0 || percent > 100) { p.sendMessage("§cПроцент должен быть 0..100."); return; }
+        String target = (nation != null) ? nation : "DEFAULT";
+        if (nation != null) store.setCommission(nation, percent);
+        p.sendMessage("§aКомиссия с продаж домов для королевства " + target
+                + " теперь §e" + percent + "%§a.");
+        plugin.getLogger().info("[Houses] commission set: " + target + " = " + percent
+                + "% by " + p.getName());
+    }
+
+    /* ================= release / home / pay / taxinfo ================= */
 
     private void handleRelease(CommandSender sender) {
         Player p = player(sender);
@@ -263,8 +304,6 @@ public final class HouseCommand implements CommandExecutor, TabCompleter {
         p.teleport(safe);
         p.sendMessage("§aТелепорт в " + h.title() + ".");
     }
-
-    /* ================= pay / taxinfo ================= */
 
     private void handlePay(CommandSender sender, String[] args) {
         Player p = player(sender);
@@ -297,6 +336,9 @@ public final class HouseCommand implements CommandExecutor, TabCompleter {
         p.sendMessage("§eСтавка: §b" + (int) perDay + " §eмонет/день");
         p.sendMessage("§eОплачено: §e" + house.paidDays + "/" + max + " дн."
                 + (house.paidDays < 0 ? " §c(просрочка " + (-house.paidDays) + "/" + grace + ")" : ""));
+        if (house.forSale) {
+            p.sendMessage("§dДом выставлен на продажу за §b" + (int) house.salePrice);
+        }
         p.sendMessage("§eПродлить: §7/rhouse pay <дни> §8(цена = дни × " + (int) perDay + ")");
     }
 
@@ -308,10 +350,14 @@ public final class HouseCommand implements CommandExecutor, TabCompleter {
         House house = store.houseAt(p.getLocation());
         if (house == null) { p.sendMessage("§7Ты не внутри дома."); return; }
         p.sendMessage("§6=== " + house.title() + " ===");
-        p.sendMessage("§eЦена: §7" + house.price);
+        p.sendMessage("§eЦена города: §7" + house.price);
         p.sendMessage("§eСтатус: " + (house.isOwned()
-                ? "§aпродан, владелец: " + house.ownerName + " §7(налог: " + house.paidDays + " дн.)"
+                ? "§aвладелец: " + house.ownerName + " §7(налог: " + house.paidDays + " дн.)"
                 : "§bсвободен"));
+        if (house.forSale) {
+            p.sendMessage("§dПродаётся за §b" + house.salePrice
+                    + " §7— купить: /rhouse buy или ПКМ по табличке");
+        }
     }
 
     private void handleList(CommandSender sender, String[] args) {
@@ -322,13 +368,15 @@ public final class HouseCommand implements CommandExecutor, TabCompleter {
             if (filter == null) list.add(h);
             else if (filter.equals("owned") && sender instanceof Player p
                     && h.owner.equals(p.getUniqueId().toString())) list.add(h);
+            else if (filter.equals("sale") && h.forSale) list.add(h);
             else if (h.town.toLowerCase().equals(filter)) list.add(h);
         }
         if (list.isEmpty()) { sender.sendMessage("§7Домов не найдено."); return; }
         sender.sendMessage("§6=== Домов: " + list.size() + " ===");
         for (House h : list) {
             sender.sendMessage("§e" + h.title() + " §7— " + h.price
-                    + (h.isOwned() ? " §aвладелец: " + h.ownerName + " §7(" + h.paidDays + " дн.)" : " §bсвободен"));
+                    + (h.isOwned() ? " §aвладелец: " + h.ownerName : " §bсвободен")
+                    + (h.forSale ? " §dПРОДАЁТСЯ: " + h.salePrice : ""));
         }
     }
 
@@ -336,10 +384,12 @@ public final class HouseCommand implements CommandExecutor, TabCompleter {
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
             return filter(Arrays.asList("create", "interior", "yard", "setsign", "setprice",
-                    "delete", "buy", "pay", "taxinfo", "release", "home", "info", "list"), args[0]);
+                    "delete", "buy", "sell", "commission", "release", "home", "pay",
+                    "taxinfo", "info", "list"), args[0]);
         }
-        if (args.length == 2 && args[0].equalsIgnoreCase("list")) {
-            return filter(Arrays.asList("owned"), args[1]);
+        if (args.length == 2) {
+            if (args[0].equalsIgnoreCase("sell")) return filter(List.of("cancel"), args[1]);
+            if (args[0].equalsIgnoreCase("list")) return filter(Arrays.asList("owned", "sale"), args[1]);
         }
         return Collections.emptyList();
     }
