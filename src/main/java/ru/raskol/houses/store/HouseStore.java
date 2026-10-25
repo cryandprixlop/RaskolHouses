@@ -9,15 +9,17 @@ import ru.raskol.houses.model.Region;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/** Реестр домов: houses.yml в папке плагина. */
+/** Реестр домов + комиссии королевств: houses.yml. */
 public final class HouseStore {
 
     private final RaskolHouses plugin;
     private final Map<String, House> houses = new LinkedHashMap<>();
+    private final Map<String, Double> commissions = new HashMap<>();
     private String lastTaxDate = "";
 
     public HouseStore(RaskolHouses plugin) {
@@ -26,10 +28,19 @@ public final class HouseStore {
 
     public void load() {
         houses.clear();
+        commissions.clear();
         File file = new File(plugin.getDataFolder(), "houses.yml");
         if (!file.exists()) return;
         YamlConfiguration cfg = YamlConfiguration.loadConfiguration(file);
         lastTaxDate = cfg.getString("meta.last-tax-date", "");
+
+        ConfigurationSection cs = cfg.getConfigurationSection("commissions");
+        if (cs != null) {
+            for (String nation : cs.getKeys(false)) {
+                commissions.put(nation, cs.getDouble(nation, 5.0));
+            }
+        }
+
         ConfigurationSection root = cfg.getConfigurationSection("houses");
         if (root == null) return;
         for (String id : root.getKeys(false)) {
@@ -49,6 +60,8 @@ public final class HouseStore {
             h.signY = s.getInt("sign-y", 0);
             h.signZ = s.getInt("sign-z", 0);
             h.paidDays = s.getInt("paid-days", 0);
+            h.forSale = s.getBoolean("for-sale", false);
+            h.salePrice = s.getDouble("sale-price", 0.0);
             if (h.structure != null) houses.put(h.id(), h);
         }
     }
@@ -56,6 +69,9 @@ public final class HouseStore {
     public void save() {
         YamlConfiguration cfg = new YamlConfiguration();
         cfg.set("meta.last-tax-date", lastTaxDate);
+        for (Map.Entry<String, Double> e : commissions.entrySet()) {
+            cfg.set("commissions." + e.getKey(), e.getValue());
+        }
         for (House h : houses.values()) {
             ConfigurationSection s = cfg.createSection("houses." + h.id());
             s.set("town", h.town);
@@ -71,6 +87,8 @@ public final class HouseStore {
             s.set("sign-y", h.signY);
             s.set("sign-z", h.signZ);
             s.set("paid-days", h.paidDays);
+            s.set("for-sale", h.forSale);
+            s.set("sale-price", h.salePrice);
         }
         try {
             cfg.save(new File(plugin.getDataFolder(), "houses.yml"));
@@ -124,4 +142,15 @@ public final class HouseStore {
     public String getLastTaxDate() { return lastTaxDate; }
 
     public void setLastTaxDate(String date) { this.lastTaxDate = date; }
+
+    /* ========== Комиссии королевств ========== */
+
+    public double getCommission(String nation, double def) {
+        return commissions.getOrDefault(nation, def);
+    }
+
+    public void setCommission(String nation, double percent) {
+        commissions.put(nation, percent);
+        save();
+    }
 }
