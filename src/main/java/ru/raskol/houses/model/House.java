@@ -18,6 +18,10 @@ public final class House {
     // Налог: оплачено дней вперёд
     public int paidDays;
 
+    // Продажа игроку
+    public boolean forSale = false;
+    public double salePrice = 0.0;
+
     public String id() { return town + "-" + number; }
 
     public boolean isOwned() { return owner != null && !owner.isEmpty(); }
