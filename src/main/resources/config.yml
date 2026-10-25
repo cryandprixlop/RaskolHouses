@@ -1,9 +1,13 @@
 # ===== RaskolHouses =====
-town-account-prefix: "town-"   # казна города: аккаунт town-<имя> (фолбэк)
-houses-per-player: 1           # лимит домов на игрока (0 = без лимита)
-refund-percent: 40             # возврат при /rhouse release, платит казна города
-sign-on-create: true           # ставить табличку при создании дома
-use-towny-bank: true           # сначала банк Towny, потом Vault-аккаунт
+town-account-prefix: "town-"
+nation-account-prefix: "nation-"
+houses-per-player: 1
+refund-percent: 40
+sign-on-create: true
+use-towny-bank: true
+
+sale:
+  commission-percent: 5.0   # дефолт комиссии королевства с продажи игрок->игрок
 
 protect-interactions: true
 protected-materials:
@@ -29,10 +33,9 @@ protected-materials:
   - ITEM_FRAME
   - FLOWER_POT
 
-# ===== Налог на недвижимость =====
 tax:
-  enabled: true          # если false — дни предоплаты не списываются
-  per-day: 200.0         # цена одного дня
-  max-prepaid-days: 20   # потолок предоплаты
-  initial-paid-days: 7   # дней включено в цену при покупке
-  grace-days: 3          # дней просрочки до конфискации дома городом
+  enabled: true
+  per-day: 200.0
+  max-prepaid-days: 20
+  initial-paid-days: 7
+  grace-days: 3
