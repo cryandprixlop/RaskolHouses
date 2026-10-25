@@ -4,7 +4,6 @@ import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
-import org.bukkit.block.BlockFace;
 import org.bukkit.block.Sign;
 import org.bukkit.block.data.type.WallSign;
 import org.bukkit.block.sign.Side;
@@ -14,7 +13,7 @@ import ru.raskol.houses.hook.VaultHook;
 import ru.raskol.houses.model.House;
 import ru.raskol.houses.store.HouseStore;
 
-/** Покупка / возврат / налог / таблички (настенные). */
+/** Покупка у города / продажа игроку / возврат / налог / таблички. */
 public final class HouseService {
 
     private static final int[][] DIRS = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
@@ -29,16 +28,20 @@ public final class HouseService {
         this.vault = vault;
     }
 
-    /* ================= Покупка ================= */
+    /* ================= Покупка (у города ИЛИ у игрока) ================= */
 
     public boolean tryBuy(Player p, House house) {
         if (house.isOwned()) {
-            p.sendMessage("§c" + house.title() + " уже продан владельцу " + house.ownerName + ".");
-            return false;
+            if (!house.forSale) {
+                p.sendMessage("§c" + house.title() + " уже продан владельцу " + house.ownerName + ".");
+                return false;
+            }
+            return tryBuyFromPlayer(p, house);
         }
+
         int limit = plugin.getConfig().getInt("houses-per-player", 1);
         if (limit > 0 && store.ownedCount(p.getUniqueId().toString()) >= limit) {
-            p.sendMessage("§cЛимит: у тебя уже " + limit + " дом(ов). Сначала верни текущий: /rhouse release");
+            p.sendMessage("§cЛимит: у тебя уже " + limit + " дом(ов). Сначала верни или продай текущий.");
             return false;
         }
         if (!vault.isAvailable()) { p.sendMessage("§cЭкономика недоступна."); return false; }
@@ -75,6 +78,129 @@ public final class HouseService {
         return true;
     }
 
+    /* ================= Продажа игрок -> игрок ================= */
+
+    private boolean tryBuyFromPlayer(Player p, House house) {
+        if (house.owner.equals(p.getUniqueId().toString())) {
+            p.sendMessage("§cЭто твой собственный дом — сними его с продажи: /rhouse sell cancel");
+            return false;
+        }
+        int limit = plugin.getConfig().getInt("houses-per-player", 1);
+        if (limit > 0 && store.ownedCount(p.getUniqueId().toString()) >= limit) {
+            p.sendMessage("§cЛимит: у тебя уже " + limit + " дом(ов). Сначала верни или продай текущий.");
+            return false;
+        }
+        if (!vault.isAvailable()) { p.sendMessage("§cЭкономика недоступна."); return false; }
+        double price = house.salePrice;
+        if (!vault.has(p, price)) {
+            p.sendMessage("§cНедостаточно средств: нужно §b" + vault.format(price)
+                    + "§c, у тебя §b" + vault.format(vault.balance(p)) + "§c.");
+            return false;
+        }
+        if (!vault.withdraw(p, price)) {
+            p.sendMessage("§cНе удалось списать деньги.");
+            return false;
+        }
+
+        // Комиссия королевства
+        String nation = plugin.getTownyHook().nationOfTown(house.town);
+        double defPct = plugin.getConfig().getDouble("sale.commission-percent", 5.0);
+        double percent = (nation != null) ? store.getCommission(nation, defPct) : defPct;
+        double commission = price * percent / 100.0;
+        String viaNation = null;
+
+        if (nation != null && commission > 0) {
+            if (plugin.getTownyHook().depositNationBank(nation, commission,
+                    "RaskolHouses: комиссия с продажи дома №" + house.number)) {
+                viaNation = "казна королевства " + nation;
+            } else {
+                String acc = plugin.getConfig().getString("nation-account-prefix", "nation-")
+                        + nation.toLowerCase();
+                vault.createAccount(acc);
+                if (vault.depositAccount(acc, commission)) viaNation = "аккаунт " + acc;
+            }
+            if (viaNation == null) {
+                vault.depositPlayer(p, price);
+                p.sendMessage("§cКазна королевства недоступна — операция отменена, деньги возвращены.");
+                return false;
+            }
+        }
+
+        double ownerShare = price - commission;
+        if (ownerShare > 0) {
+            boolean paid = vault.depositAccount(house.ownerName, ownerShare);
+            if (!paid) {
+                // откат: вернуть комиссию и деньги покупателя
+                if (nation != null && commission > 0) {
+                    plugin.getTownyHook().withdrawNationBank(nation, commission,
+                            "RaskolHouses: откат комиссии продажи №" + house.number);
+                }
+                vault.depositPlayer(p, price);
+                p.sendMessage("§cНе удалось выплатить владельцу — операция отменена, деньги возвращены.");
+                return false;
+            }
+        }
+
+        String oldOwner = house.ownerName;
+        house.owner = p.getUniqueId().toString();
+        house.ownerName = p.getName();
+        house.forSale = false;
+        house.salePrice = 0.0;
+        store.save();
+        updateSign(house);
+
+        p.sendMessage("§a✔ Куплен " + house.title() + " у §e" + oldOwner + " §aза §b"
+                + vault.format(price) + "§a.");
+        if (nation != null && commission > 0) {
+            p.sendMessage("§7Комиссия королевства " + percent + "% (§b"
+                    + vault.format(commission) + "§7) ушла: " + viaNation + ".");
+        }
+        Player seller = Bukkit.getPlayerExact(oldOwner);
+        if (seller != null) {
+            seller.sendMessage("§a✔ Твой " + house.title() + " продан игроку §e" + p.getName()
+                    + " §aза §b" + vault.format(price) + "§a. На счёт поступило §b"
+                    + vault.format(ownerShare) + " §7(минус комиссия " + percent + "%).");
+        }
+        plugin.getLogger().info("[Houses] player-sale: " + house.id() + " " + oldOwner
+                + " -> " + p.getName() + " for " + price + " (commission " + percent
+                + "% -> " + (viaNation == null ? "n/a" : viaNation) + ")");
+        return true;
+    }
+
+    /* ================= Выставить / снять с продажи ================= */
+
+    public void listForSale(Player p, House house, double price) {
+        if (!house.isOwned() || !house.owner.equals(p.getUniqueId().toString())) {
+            p.sendMessage("§cТы не владелец этого дома.");
+            return;
+        }
+        if (price <= 0) { p.sendMessage("§cЦена должна быть больше нуля."); return; }
+        house.forSale = true;
+        house.salePrice = price;
+        store.save();
+        updateSign(house);
+
+        String nation = plugin.getTownyHook().nationOfTown(house.town);
+        double defPct = plugin.getConfig().getDouble("sale.commission-percent", 5.0);
+        double percent = (nation != null) ? store.getCommission(nation, defPct) : defPct;
+        p.sendMessage("§a" + house.title() + " выставлен на продажу за §b" + vault.format(price) + "§a.");
+        p.sendMessage("§7Комиссия королевства при продаже: " + percent + "% (ты получишь §b"
+                + vault.format(price * (100.0 - percent) / 100.0) + "§7).");
+        p.sendMessage("§7Снять с продажи: §e/rhouse sell cancel");
+    }
+
+    public void cancelSale(Player p, House house) {
+        if (!house.isOwned() || !house.owner.equals(p.getUniqueId().toString())) {
+            p.sendMessage("§cТы не владелец этого дома.");
+            return;
+        }
+        house.forSale = false;
+        house.salePrice = 0.0;
+        store.save();
+        updateSign(house);
+        p.sendMessage("§a" + house.title() + " снят с продажи.");
+    }
+
     /* ================= Продажа государству ================= */
 
     public void release(Player p, House house) {
@@ -97,6 +223,8 @@ public final class HouseService {
         house.owner = "";
         house.ownerName = "";
         house.paidDays = 0;
+        house.forSale = false;
+        house.salePrice = 0.0;
         store.save();
         updateSign(house);
         p.sendMessage("§c" + house.title() + " §7возвращён городу.");
@@ -173,13 +301,11 @@ public final class HouseService {
         }
         String account = plugin.getConfig().getString("town-account-prefix", "town-")
                 + town.toLowerCase();
-        return vault.withdrawAccount(account, world, amount)
-                || vault.withdrawAccount(account, amount);
+        return vault.withdrawAccount(account, amount);
     }
 
     /* ================= Таблички (настенные) ================= */
 
-    /** Авто-поиск стены внутри дома: табличка вешается на неё лицом в комнату. */
     public void placeSign(House h, Player creator) {
         try {
             org.bukkit.World w = Bukkit.getWorld(h.structure.world);
@@ -218,23 +344,18 @@ public final class HouseService {
         }
     }
 
-    /**
-     * Привязать табличку к координатам.
-     * facing = куда смотрит лицевая сторона (null = авто: ищем стену рядом).
-     * Если блока-таблички нет — создаёт OAK_WALL_SIGN (или OAK_SIGN, если стены нет).
-     */
-    public boolean attachSign(House h, Location loc, BlockFace facing) {
+    public boolean attachSign(House h, Location loc, org.bukkit.block.BlockFace facing) {
         Block b = loc.getBlock();
         if (!(b.getState() instanceof Sign)) {
             if (b.getType() != Material.AIR) return false;
-            BlockFace f = (facing != null && isHorizontal(facing)) ? facing : detectWall(b);
+            org.bukkit.block.BlockFace f = (facing != null && isHorizontal(facing)) ? facing : detectWall(b);
             if (f != null) {
                 b.setType(Material.OAK_WALL_SIGN);
                 if (b.getBlockData() instanceof WallSign ws) {
                     ws.setFacing(f);
                     b.setBlockData(ws);
                 }
-            } else if (b.getRelative(BlockFace.DOWN).getType().isSolid()) {
+            } else if (b.getRelative(org.bukkit.block.BlockFace.DOWN).getType().isSolid()) {
                 b.setType(Material.OAK_SIGN);
             } else {
                 return false;
@@ -272,28 +393,36 @@ public final class HouseService {
         sign.getSide(Side.FRONT).setLine(1, h.isOwned()
                 ? "§a" + h.ownerName
                 : "Цена: §b" + (int) h.price);
-        sign.getSide(Side.FRONT).setLine(2, h.isOwned()
-                ? "§eНалог: §7" + h.paidDays + " дн."
-                : "§7[свободен]");
-        sign.getSide(Side.FRONT).setLine(3, h.isOwned() ? "" : "§eПКМ: купить");
+        if (h.forSale) {
+            sign.getSide(Side.FRONT).setLine(2, "§dПродаётся: §b" + (int) h.salePrice);
+            sign.getSide(Side.FRONT).setLine(3, "§eПКМ: купить у игрока");
+        } else if (h.isOwned()) {
+            sign.getSide(Side.FRONT).setLine(2, "§eНалог: §7" + h.paidDays + " дн.");
+            sign.getSide(Side.FRONT).setLine(3, "");
+        } else {
+            sign.getSide(Side.FRONT).setLine(2, "§7[свободен]");
+            sign.getSide(Side.FRONT).setLine(3, "§eПКМ: купить");
+        }
     }
 
-    /** Направление стены рядом с блоком -> facing таблички (от стены). */
-    private BlockFace detectWall(Block b) {
-        for (BlockFace f : new BlockFace[]{BlockFace.NORTH, BlockFace.SOUTH, BlockFace.EAST, BlockFace.WEST}) {
+    private org.bukkit.block.BlockFace detectWall(Block b) {
+        for (org.bukkit.block.BlockFace f : new org.bukkit.block.BlockFace[]{
+                org.bukkit.block.BlockFace.NORTH, org.bukkit.block.BlockFace.SOUTH,
+                org.bukkit.block.BlockFace.EAST, org.bukkit.block.BlockFace.WEST}) {
             if (b.getRelative(f).getType().isSolid()) return f.getOppositeFace();
         }
         return null;
     }
 
-    private boolean isHorizontal(BlockFace f) {
-        return f == BlockFace.NORTH || f == BlockFace.SOUTH || f == BlockFace.EAST || f == BlockFace.WEST;
+    private boolean isHorizontal(org.bukkit.block.BlockFace f) {
+        return f == org.bukkit.block.BlockFace.NORTH || f == org.bukkit.block.BlockFace.SOUTH
+                || f == org.bukkit.block.BlockFace.EAST || f == org.bukkit.block.BlockFace.WEST;
     }
 
-    private BlockFace faceOf(int dx, int dz) {
-        if (dx == 1) return BlockFace.EAST;
-        if (dx == -1) return BlockFace.WEST;
-        if (dz == 1) return BlockFace.SOUTH;
-        return BlockFace.NORTH;
+    private org.bukkit.block.BlockFace faceOf(int dx, int dz) {
+        if (dx == 1) return org.bukkit.block.BlockFace.EAST;
+        if (dx == -1) return org.bukkit.block.BlockFace.WEST;
+        if (dz == 1) return org.bukkit.block.BlockFace.SOUTH;
+        return org.bukkit.block.BlockFace.NORTH;
     }
 }
