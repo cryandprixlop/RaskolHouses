@@ -52,6 +52,7 @@ public final class VaultHook {
         }
     }
 
+    /** Зачисление оффлайн-аккаунту или игроку по имени. */
     public boolean depositAccount(String accountName, double amount) {
         if (!isAvailable()) return false;
         return economy.depositPlayer(accountName, amount).transactionSuccess();
@@ -65,10 +66,5 @@ public final class VaultHook {
     public boolean withdrawAccount(String accountName, double amount) {
         if (!isAvailable()) return false;
         return economy.withdrawPlayer(accountName, amount).transactionSuccess();
-    }
-
-    public boolean withdrawAccount(String accountName, String worldName, double amount) {
-        if (!isAvailable()) return false;
-        return economy.withdrawPlayer(accountName, worldName, amount).transactionSuccess();
     }
 }
